@@ -1,12 +1,12 @@
 import json
-
 import pandas as pd
 import random
 from datetime import datetime, timedelta
 from openai import OpenAI
+from openpyxl import Workbook
 
 # 初始化OpenAI API客户端
-client = OpenAI(api_key="", base_url='https://api.nextapi.fun')
+client = OpenAI(api_key="ak-", base_url='https://api.nextapi.fun')
 
 # 定义问卷问题及选项
 questions_with_options = [
@@ -27,26 +27,34 @@ questions_with_options = [
     {"question": "您对学校提供的生涯规划教育资源（如课程、讲座、咨询）的满意度如何", "options": ["A.非常满意", "B.满意", "C.一般", "D.不满意"]}
 ]
 
-# 随机生成一个时间范围（从五天前到当前时间）
+# 随机生成一个IP地址
+def generate_random_ip():
+    ip = f"{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 255)}"
+    guangxi_cities = [
+        "(广西-南宁)", "(广西-桂林)", "(广西-柳州)", "(广西-梧州)", "(广西-北海)",
+        "(广西-钦州)", "(广西-防城港)", "(广西-玉林)", "(广西-百色)", "(广西-贺州)",
+        "(广西-河池)", "(广西-崇左)", "(广西-来宾)"
+    ]
+    location = random.choice(guangxi_cities)
+    return f"{ip}{location}"
+
+# 随机生成一个时间范围
 def generate_random_time():
     time_diff = random.randint(0, 5 * 24 * 60 * 60)  # 5天以内的秒数
     random_time = datetime.now() - timedelta(seconds=time_diff)
     return random_time.strftime('%Y/%m/%d %H:%M:%S')
 
-# 随机生成所用时间（以秒为单位）
+# 随机生成所用时间
 def generate_random_duration():
     return f"{random.randint(60, 180)}秒"  # 生成 1-3 分钟之间的时间
 
-# 随机生成来源、来源详情、IP
+# 随机生成来源信息
 def generate_random_source():
-    sources = ['手机提交', '电脑提交', '平板提交']
-    source_details = ['直接访问', '通过链接访问', '社交媒体']
-    ip_addresses = ['47.242.197.118(香港-未知)', '192.168.1.1(中国-北京)', '34.239.50.30(美国-弗吉尼亚州)']
-
+    sources = ['手机提交']
+    source_details = ['直接访问']
     source = random.choice(sources)
     source_detail = random.choice(source_details)
-    ip = random.choice(ip_addresses)
-
+    ip = generate_random_ip()
     return source, source_detail, ip
 
 # 获取用户输入的生成数量
@@ -55,79 +63,81 @@ num_responses = int(input("请输入需要生成的问卷数量: "))
 # 初始化存储问卷答案的列表
 data = []
 
+# 创建 Excel 工作簿
+output_filename = f"问卷调查结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+wb = Workbook()
+ws = wb.active
+headers = [q["question"] for q in questions_with_options] + ['序号', '提交答卷时间', '所用时间', '来源', '来源详情', '来自IP']
+ws.append(headers)
+
 # 生成问卷并调用 OpenAI API 获取答案
 for i in range(num_responses):
-    # 构建问题文本
-    questions_text = "\n".join(
-        [f"{idx+1}、{q['question']}：{'；'.join(q['options'])}" for idx, q in enumerate(questions_with_options)]
-    )
+    try:
+        genders = ['男', '女']
+        gender = random.choice(genders)
+        grades = ['大一','大二','大三','大四']
+        grade = random.choice(grades)
+        questions_text = "\n".join(
+            [f"{idx+1}、{q['question']}：{'；'.join(q['options'])}" for idx, q in enumerate(questions_with_options)]
+        )
 
-    # 调用 OpenAI API
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": "您是一名问卷填写助手，请从给定的选项中选择答案。"
-            },
-            {
-                "role": "user",
-                "content": f"以下是问卷，请按要求选择答案：\n{questions_text}"
-            }
-        ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "answers",
-                "description": "answers",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "answers_list": {
-                            "type": "array",
-                            "description": "full answer item, include Option And text content, example: A.提高学历",
-                            "items": {
-                                "$ref": "#"
-                            }
+        # 调用 OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "我是一名问卷填写助手，可以从给定的选项中选择答案。"
+                },
+                {
+                    "role": "user",
+                    "content": f"你的性别: {gender}，您的年级: {grade}， 以下是问卷，请按要求选择答案：\n{questions_text}"
+                }
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "answers",
+                    "description": "answers",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "answers_list": {
+                                "type": "array",
+                                "description": "Array of indices representing selected options for each question (e.g., 0 for A, 1 for B).",
+                                "items": {
+                                    "type": "integer"
+                                }
+                            },
                         },
-                    },
-                    "required": ["answers_list"],
+                        "required": ["answers_list"],
+                    }
                 }
             }
-        }
-    )
+        )
 
-    # 解析答案
-    answers = json.loads(response.choices[0].message.content)  # 假设这里是返回的答案 JSON
-    answer_list = answers['answers_list']  # 获取答案列表
+        # 解析答案索引
+        answers = json.loads(response.choices[0].message.content)
+        answers_indices = answers['answers_list']  # 直接获取答案索引列表
 
-    # 获取随机数据
-    submit_time = generate_random_time()
-    duration = generate_random_duration()
-    source, source_detail, ip = generate_random_source()
+        # 将索引转换为具体答案
+        answers_text = [questions_with_options[q_idx]["options"][opt_idx] for q_idx, opt_idx in enumerate(answers_indices)]
 
-    # 组织回答格式
-    answer_dict = {questions_with_options[i]["question"]: answer_list[i] for i in range(len(answer_list))}
+        # 获取随机数据
+        submit_time = generate_random_time()
+        duration = generate_random_duration()
+        source, source_detail, ip = generate_random_source()
 
-    # 添加额外字段
-    answer_dict['序号'] = i + 1
-    answer_dict['提交答卷时间'] = submit_time
-    answer_dict['所用时间'] = duration
-    answer_dict['来源'] = source
-    answer_dict['来源详情'] = source_detail
-    answer_dict['来自IP'] = ip
+        # 将具体答案写入 Excel
+        row_data = answers_text + [i + 1, submit_time, duration, source, source_detail, ip]
+        ws.append(row_data)
+        wb.save(output_filename)
 
-    data.append(answer_dict)
+        # 打印进度
+        progress = (i + 1) / num_responses * 100
+        print(f"生成进度: {progress:.2f}% ({i + 1}/{num_responses})")
 
-    # 打印进度
-    progress = (i + 1) / num_responses * 100
-    print(f"生成进度: {progress:.2f}% ({i + 1}/{num_responses})")
-
-# 将生成的数据转换为 DataFrame
-df = pd.DataFrame(data)
-
-# 输出到 Excel 文件
-output_filename = f"问卷调查结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-df.to_excel(output_filename, index=False)
+    except Exception as e:
+        print(f"发生错误: {e}")
 
 print(f"所有数据生成完毕，已保存到 {output_filename}")
